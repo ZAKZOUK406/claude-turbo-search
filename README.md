@@ -9,6 +9,24 @@ Optimized file search and semantic indexing for large codebases in Claude Code.
 - **Cartographer integration** - Automatic codebase mapping
 - **One command setup** - `/turbo-index` does everything
 
+## Requirements
+
+### Supported Platforms
+
+| Platform | Package Manager | Status |
+|----------|-----------------|--------|
+| macOS | Homebrew | Fully supported |
+| Ubuntu/Debian | apt | Fully supported |
+| Fedora/RHEL | dnf | Fully supported |
+| Arch Linux | pacman | Fully supported |
+| Windows | - | Not supported (use WSL) |
+
+### Prerequisites
+
+- [Claude Code CLI](https://claude.ai/claude-code) installed
+- Bash 4.0+ (default on macOS and Linux)
+- A supported package manager (see above)
+
 ## Installation
 
 ### Option 1: Clone and link (development)
@@ -70,7 +88,7 @@ Running `/turbo-index` again will:
 | [bun](https://bun.sh) | JavaScript runtime |
 | [qmd](https://github.com/tobi/qmd) | Semantic search engine |
 
-All dependencies are installed automatically via Homebrew on first run.
+All dependencies are installed automatically on first run using your system's package manager.
 
 ## How It Saves Tokens
 
@@ -100,6 +118,8 @@ After running `/turbo-index`, these files are modified:
 - `~/.claude/file-suggestion.sh` - turbo file suggestion script
 - `.claude/turbo-search.json` - project-specific metadata (in each project)
 
+**Note:** The setup scripts will warn you if existing configuration will be overwritten and create backups automatically.
+
 ## MCP Tools
 
 After setup, these MCP tools are available:
@@ -110,6 +130,37 @@ After setup, these MCP tools are available:
 | `qmd_get` | Retrieve specific document by path/ID |
 | `qmd_collections` | List all indexed projects |
 
+## Troubleshooting
+
+### Dependencies not installing
+
+If automatic installation fails, you can install dependencies manually:
+
+```bash
+# macOS
+brew install ripgrep fzf jq
+brew tap oven-sh/bun && brew install bun
+bun install -g https://github.com/tobi/qmd
+
+# Ubuntu/Debian
+sudo apt-get install ripgrep fzf jq
+curl -fsSL https://bun.sh/install | bash
+bun install -g https://github.com/tobi/qmd
+
+# Fedora
+sudo dnf install ripgrep fzf jq
+curl -fsSL https://bun.sh/install | bash
+bun install -g https://github.com/tobi/qmd
+```
+
+### QMD models downloading
+
+On first use, QMD downloads ~1.7GB of models. This is normal and only happens once.
+
+## Contributing
+
+See [CONTRIBUTING.md](CONTRIBUTING.md) for guidelines on how to contribute.
+
 ## License
 
-MIT
+MIT - see [LICENSE](LICENSE) for details.

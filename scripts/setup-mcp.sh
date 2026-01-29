@@ -1,11 +1,17 @@
 #!/bin/bash
 # setup-mcp.sh - Configure QMD MCP server in Claude Code settings
-# Usage: ./setup-mcp.sh
+# Usage: ./setup-mcp.sh [--force]
 
 set -e
 
 CLAUDE_DIR="$HOME/.claude"
 SETTINGS_FILE="$CLAUDE_DIR/settings.json"
+BACKUP_DIR="$CLAUDE_DIR/backups"
+
+FORCE=false
+if [ "$1" = "--force" ]; then
+  FORCE=true
+fi
 
 # Colors
 GREEN='\033[0;32m'
@@ -25,6 +31,19 @@ fi
 # Check if qmd is installed
 if ! command -v qmd &> /dev/null; then
   echo -e "${YELLOW}Warning: qmd is not installed. MCP server won't work until qmd is available.${NC}"
+fi
+
+# Check for existing qmd MCP config
+EXISTING_QMD=$(jq -r '.mcpServers.qmd // empty' "$SETTINGS_FILE" 2>/dev/null)
+if [ -n "$EXISTING_QMD" ] && [ "$FORCE" != true ]; then
+  echo -e "${YELLOW}Warning: Existing qmd MCP server config found in settings.json${NC}"
+  echo "  Current: $(echo "$EXISTING_QMD" | jq -c .)"
+
+  # Backup settings
+  mkdir -p "$BACKUP_DIR"
+  BACKUP_SETTINGS="$BACKUP_DIR/settings.json.$(date +%Y%m%d_%H%M%S).bak"
+  cp "$SETTINGS_FILE" "$BACKUP_SETTINGS"
+  echo -e "${GREEN}✓${NC} Backed up settings to $BACKUP_SETTINGS"
 fi
 
 # Use jq to add/update mcpServers.qmd
