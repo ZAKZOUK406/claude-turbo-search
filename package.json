@@ -19,7 +19,8 @@
   },
   "claude-code": {
     "skills": [
-      "skills/turbo-index.md"
+      "skills/turbo-index.md",
+      "skills/qmd.md"
     ]
   }
 }

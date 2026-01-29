@@ -128,8 +128,25 @@ echo ""
 echo "✓ QMD semantic search ready"
 echo "✓ Turbo file suggestion active"
 echo ""
-echo "Try asking: \"search for authentication logic\" or \"find the main entry point\""
+echo "💡 Pro tip: Use 'qmd search \"query\"' to find files BEFORE reading them"
+echo "   This saves tokens by only reading relevant content."
+echo ""
+echo "Try: qmd search \"authentication\" --files"
 ```
+
+## Using QMD for Token Savings
+
+After indexing, always prefer searching before reading:
+
+```bash
+# Find relevant files first (fast, low tokens)
+qmd search "your topic" --files -n 5
+
+# Then read only what you need
+qmd get "path/to/relevant-file.md"
+```
+
+**The /qmd skill is also available** - use it when you need to search for content across your indexed projects.
 
 ## Notes
 
@@ -137,3 +154,4 @@ echo "Try asking: \"search for authentication logic\" or \"find the main entry p
 - First run installs dependencies and configures Claude Code globally
 - Subsequent runs just refresh the project index
 - Restart Claude Code after first run to activate MCP tools
+- Use `qmd search` before reading files to save tokens

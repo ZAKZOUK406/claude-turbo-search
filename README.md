@@ -8,6 +8,8 @@ Optimized file search and semantic indexing for large codebases in Claude Code.
 - **Semantic search** - QMD integration for finding relevant docs by meaning
 - **Cartographer integration** - Automatic codebase mapping
 - **One command setup** - `/turbo-index` does everything
+- **QMD skill** - `/qmd` teaches Claude to search before reading files
+- **Optional hooks** - Auto-inject relevant context before prompts
 
 ## Requirements
 
@@ -77,6 +79,44 @@ Running `/turbo-index` again will:
 - Skip dependency installation
 - Skip global configuration
 - Refresh the project index if files changed
+
+### Using the QMD Skill
+
+After indexing, use `/qmd` or just ask Claude to search:
+
+```
+"Search for authentication logic in this project"
+"Find files related to database migrations"
+```
+
+Claude will use QMD to find relevant files **before** reading them, saving significant tokens.
+
+### Manual QMD Commands
+
+```bash
+# Fast keyword search (use this first)
+qmd search "your query" --files -n 10
+
+# Semantic search (slower, use as fallback)
+qmd vsearch "how does the login flow work"
+
+# Get specific file content
+qmd get "path/to/file.md"
+```
+
+### Optional: Auto-Context Hooks
+
+Enable automatic context injection that searches QMD before each prompt:
+
+```bash
+~/claude-turbo-search/scripts/setup-hooks.sh
+```
+
+This will automatically suggest relevant files based on your prompts. To remove:
+
+```bash
+~/claude-turbo-search/scripts/setup-hooks.sh --remove
+```
 
 ## Dependencies
 
