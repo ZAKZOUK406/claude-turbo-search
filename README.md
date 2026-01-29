@@ -1,0 +1,115 @@
+# Claude Turbo Search
+
+Optimized file search and semantic indexing for large codebases in Claude Code.
+
+## Features
+
+- **Fast file suggestions** - ripgrep + fzf for instant autocomplete
+- **Semantic search** - QMD integration for finding relevant docs by meaning
+- **Cartographer integration** - Automatic codebase mapping
+- **One command setup** - `/turbo-index` does everything
+
+## Installation
+
+### Option 1: Clone and link (development)
+
+```bash
+git clone https://github.com/iagocavalcante/claude-turbo-search.git ~/claude-turbo-search
+cd ~/claude-turbo-search
+```
+
+Add to your `~/.claude/settings.json`:
+
+```json
+{
+  "enabledPlugins": {
+    "claude-turbo-search@local": true
+  },
+  "pluginPaths": {
+    "claude-turbo-search@local": "~/claude-turbo-search"
+  }
+}
+```
+
+### Option 2: From marketplace (when published)
+
+```bash
+claude plugins install claude-turbo-search
+```
+
+## Usage
+
+In any project, run:
+
+```
+/turbo-index
+```
+
+This will:
+
+1. Check and install dependencies (ripgrep, fzf, jq, bun, qmd)
+2. Configure fast file suggestions
+3. Set up QMD MCP server for semantic search
+4. Run cartographer to map the codebase
+5. Index all documentation with QMD
+
+### Subsequent runs
+
+Running `/turbo-index` again will:
+- Skip dependency installation
+- Skip global configuration
+- Refresh the project index if files changed
+
+## Dependencies
+
+| Tool | Purpose |
+|------|---------|
+| [ripgrep](https://github.com/BurntSushi/ripgrep) | Fast file search |
+| [fzf](https://github.com/junegunn/fzf) | Fuzzy finder |
+| [jq](https://github.com/stedolan/jq) | JSON parsing |
+| [bun](https://bun.sh) | JavaScript runtime |
+| [qmd](https://github.com/tobi/qmd) | Semantic search engine |
+
+All dependencies are installed automatically via Homebrew on first run.
+
+## How It Saves Tokens
+
+### Before (traditional exploration)
+```
+Read file1.md (2000 tokens)
+Read file2.md (1500 tokens)
+Read file3.md (1800 tokens)
+→ Found answer in file3.md
+Total: 5300 tokens
+```
+
+### After (with turbo search)
+```
+qmd_search "how does auth work" (50 tokens)
+→ Returns: file3.md lines 45-62 (200 tokens)
+Total: 250 tokens
+```
+
+**Estimated savings: 60-80% on exploration tasks**
+
+## Configuration
+
+After running `/turbo-index`, these files are modified:
+
+- `~/.claude/settings.json` - fileSuggestion and mcpServers config
+- `~/.claude/file-suggestion.sh` - turbo file suggestion script
+- `.claude/turbo-search.json` - project-specific metadata (in each project)
+
+## MCP Tools
+
+After setup, these MCP tools are available:
+
+| Tool | Description |
+|------|-------------|
+| `qmd_search` | Semantic search across indexed docs |
+| `qmd_get` | Retrieve specific document by path/ID |
+| `qmd_collections` | List all indexed projects |
+
+## License
+
+MIT
