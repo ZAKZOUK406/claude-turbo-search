@@ -1,6 +1,7 @@
 #!/bin/bash
 # install-deps.sh - Install dependencies for claude-turbo-search
 # Usage: ./install-deps.sh [--check-only]
+# Supports: macOS (Homebrew), Linux (apt, dnf, pacman)
 
 set -e
 
@@ -13,7 +14,36 @@ fi
 RED='\033[0;31m'
 GREEN='\033[0;32m'
 YELLOW='\033[1;33m'
+BLUE='\033[0;34m'
 NC='\033[0m' # No Color
+
+# Detect OS and package manager
+detect_os() {
+  if [[ "$OSTYPE" == "darwin"* ]]; then
+    echo "macos"
+  elif [[ "$OSTYPE" == "linux-gnu"* ]]; then
+    echo "linux"
+  else
+    echo "unknown"
+  fi
+}
+
+detect_package_manager() {
+  if command -v brew &> /dev/null; then
+    echo "brew"
+  elif command -v apt-get &> /dev/null; then
+    echo "apt"
+  elif command -v dnf &> /dev/null; then
+    echo "dnf"
+  elif command -v pacman &> /dev/null; then
+    echo "pacman"
+  else
+    echo "unknown"
+  fi
+}
+
+OS=$(detect_os)
+PKG_MANAGER=$(detect_package_manager)
 
 check_command() {
   local cmd=$1
@@ -28,25 +58,69 @@ check_command() {
   fi
 }
 
-install_with_brew() {
-  local package=$1
-  local tap=$2
+install_package() {
+  local pkg_brew=$1
+  local pkg_apt=$2
+  local pkg_dnf=$3
+  local pkg_pacman=$4
+  local tap=$5
 
-  if ! command -v brew &> /dev/null; then
-    echo -e "${RED}Error: Homebrew is required but not installed.${NC}"
-    echo "Install from: https://brew.sh"
-    exit 1
-  fi
-
-  if [ -n "$tap" ]; then
-    echo "  Adding tap: $tap"
-    brew tap "$tap" 2>/dev/null || true
-  fi
-
-  echo "  Installing $package..."
-  brew install "$package"
+  case $PKG_MANAGER in
+    brew)
+      if [ -n "$tap" ]; then
+        echo "  Adding tap: $tap"
+        brew tap "$tap" 2>/dev/null || true
+      fi
+      echo "  Installing $pkg_brew..."
+      brew install "$pkg_brew"
+      ;;
+    apt)
+      echo "  Installing $pkg_apt..."
+      sudo apt-get update -qq
+      sudo apt-get install -y "$pkg_apt"
+      ;;
+    dnf)
+      echo "  Installing $pkg_dnf..."
+      sudo dnf install -y "$pkg_dnf"
+      ;;
+    pacman)
+      echo "  Installing $pkg_pacman..."
+      sudo pacman -S --noconfirm "$pkg_pacman"
+      ;;
+    *)
+      echo -e "${RED}Error: No supported package manager found.${NC}"
+      echo "Please install manually:"
+      echo "  - ripgrep: https://github.com/BurntSushi/ripgrep"
+      echo "  - fzf: https://github.com/junegunn/fzf"
+      echo "  - jq: https://github.com/stedolan/jq"
+      echo "  - bun: https://bun.sh"
+      echo "  - qmd: https://github.com/tobi/qmd"
+      exit 1
+      ;;
+  esac
 }
 
+install_bun() {
+  case $PKG_MANAGER in
+    brew)
+      brew tap oven-sh/bun 2>/dev/null || true
+      brew install bun
+      ;;
+    *)
+      # Use official installer for Linux
+      echo "  Installing bun via official installer..."
+      curl -fsSL https://bun.sh/install | bash
+      # Source the updated PATH
+      export BUN_INSTALL="$HOME/.bun"
+      export PATH="$BUN_INSTALL/bin:$PATH"
+      ;;
+  esac
+}
+
+echo -e "${BLUE}claude-turbo-search dependency installer${NC}"
+echo ""
+echo -e "OS: ${YELLOW}$OS${NC}, Package Manager: ${YELLOW}$PKG_MANAGER${NC}"
+echo ""
 echo "Checking dependencies..."
 echo ""
 
@@ -70,6 +144,17 @@ if [ "$CHECK_ONLY" = true ]; then
   exit 1
 fi
 
+if [ "$PKG_MANAGER" = "unknown" ]; then
+  echo -e "${RED}Error: No supported package manager found.${NC}"
+  echo ""
+  echo "Supported package managers:"
+  echo "  - macOS: Homebrew (brew)"
+  echo "  - Linux: apt-get, dnf, pacman"
+  echo ""
+  echo "Please install a package manager or install dependencies manually."
+  exit 1
+fi
+
 echo -e "${YELLOW}Missing dependencies: ${MISSING[*]}${NC}"
 echo ""
 read -p "Install missing dependencies? [Y/n] " -n 1 -r
@@ -86,18 +171,26 @@ for dep in "${MISSING[@]}"; do
 
   case $dep in
     ripgrep)
-      install_with_brew "ripgrep"
+      # brew: ripgrep, apt: ripgrep, dnf: ripgrep, pacman: ripgrep
+      install_package "ripgrep" "ripgrep" "ripgrep" "ripgrep"
       ;;
     fzf)
-      install_with_brew "fzf"
+      # brew: fzf, apt: fzf, dnf: fzf, pacman: fzf
+      install_package "fzf" "fzf" "fzf" "fzf"
       ;;
     jq)
-      install_with_brew "jq"
+      # brew: jq, apt: jq, dnf: jq, pacman: jq
+      install_package "jq" "jq" "jq" "jq"
       ;;
     bun)
-      install_with_brew "bun" "oven-sh/bun"
+      install_bun
       ;;
     qmd)
+      # Ensure bun is in PATH (may have just been installed)
+      if [ -d "$HOME/.bun/bin" ]; then
+        export PATH="$HOME/.bun/bin:$PATH"
+      fi
+
       if ! command -v bun &> /dev/null; then
         echo -e "${RED}Error: bun must be installed first for qmd${NC}"
         exit 1
