@@ -15,16 +15,17 @@ PROJECT_NAME=$(basename "$PROJECT_DIR")
 # Check if QMD collection exists for semantic boost
 QMD_AVAILABLE=false
 if command -v qmd &> /dev/null; then
-  # Check if collection exists by trying to list it
-  if qmd collections 2>/dev/null | grep -q "^$PROJECT_NAME$"; then
+  # Check if collection exists by listing collections
+  if qmd collection list 2>/dev/null | grep -q "$PROJECT_NAME"; then
     QMD_AVAILABLE=true
   fi
 fi
 
 # Semantic search results (if available and query is meaningful)
 if [ "$QMD_AVAILABLE" = true ] && [ -n "$QUERY" ] && [ ${#QUERY} -gt 2 ]; then
-  # Prepend QMD results for relevant docs
-  qmd search "$PROJECT_NAME" "$QUERY" --format=paths --limit=5 2>/dev/null
+  # Prepend QMD results for relevant docs using correct syntax
+  # qmd search <query> -c <collection> --files outputs file paths
+  qmd search "$QUERY" -c "$PROJECT_NAME" --files -n 5 2>/dev/null | cut -d',' -f3
 fi
 
 # Fast file search with rg + fzf

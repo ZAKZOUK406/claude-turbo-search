@@ -81,12 +81,15 @@ PROJECT_NAME=$(basename "$PWD")
 echo "Indexing project: $PROJECT_NAME"
 
 # Add the project directory as a QMD collection
-qmd add "$PROJECT_NAME" . --glob "**/*.md" --glob "**/README*" --glob "**/CLAUDE.md" --context "Codebase documentation and structure for $PROJECT_NAME"
+# Using correct QMD syntax: qmd collection add [path] --name <name> --mask <pattern>
+qmd collection add . --name "$PROJECT_NAME" --mask "**/*.md"
 
-# Also index code structure files if they exist
-if [ -d docs ]; then
-  qmd add "$PROJECT_NAME" ./docs --glob "**/*.md" --context "Documentation directory"
-fi
+# Add context for the collection
+qmd context add . "Codebase documentation and structure for $PROJECT_NAME"
+
+# Create vector embeddings for semantic search
+echo "Creating vector embeddings (this may take a moment on first run)..."
+qmd embed
 ```
 
 Store metadata for staleness detection:
