@@ -1,6 +1,10 @@
 #!/bin/bash
-# setup-hooks.sh - Configure Claude Code hooks for automatic QMD context injection
-# Usage: ./setup-hooks.sh [--remove]
+# setup-hooks.sh - Configure Claude Code hooks for automatic context injection
+#
+# Usage:
+#   ./setup-hooks.sh          # Install simple hook (suggests file paths)
+#   ./setup-hooks.sh --rag    # Install RAG hook (injects actual content)
+#   ./setup-hooks.sh --remove # Remove all turbo-search hooks
 
 set -e
 
@@ -14,22 +18,40 @@ BACKUP_DIR="$CLAUDE_DIR/backups"
 GREEN='\033[0;32m'
 YELLOW='\033[1;33m'
 RED='\033[0;31m'
+BLUE='\033[0;34m'
 NC='\033[0m'
 
-if [ "$1" = "--remove" ]; then
+# Parse arguments
+HOOK_MODE="simple"
+if [ "$1" = "--rag" ]; then
+  HOOK_MODE="rag"
+elif [ "$1" = "--remove" ]; then
   echo "Removing turbo-search hooks..."
 
   if [ -f "$SETTINGS_FILE" ]; then
-    # Remove our hook from the hooks array
-    UPDATED=$(jq 'del(.hooks[] | select(.command | contains("pre-prompt-search")))' "$SETTINGS_FILE" 2>/dev/null || cat "$SETTINGS_FILE")
+    # Remove our hooks from the hooks array
+    UPDATED=$(jq 'if .hooks then .hooks = [.hooks[] | select(.command | (contains("pre-prompt-search") or contains("rag-context-hook")) | not)] else . end' "$SETTINGS_FILE" 2>/dev/null || cat "$SETTINGS_FILE")
     echo "$UPDATED" > "$SETTINGS_FILE"
     echo -e "${GREEN}✓${NC} Hooks removed from settings.json"
   fi
 
   exit 0
+elif [ "$1" = "--help" ] || [ "$1" = "-h" ]; then
+  echo "Usage: $0 [--rag|--remove|--help]"
+  echo ""
+  echo "Options:"
+  echo "  (none)    Install simple hook (suggests file paths)"
+  echo "  --rag     Install RAG hook (injects actual content snippets)"
+  echo "  --remove  Remove all turbo-search hooks"
+  echo "  --help    Show this help message"
+  echo ""
+  echo "The RAG hook provides better context but uses more tokens per prompt."
+  echo "The simple hook is lightweight and just suggests relevant files."
+  exit 0
 fi
 
-echo "Setting up turbo-search hooks..."
+echo -e "${BLUE}Setting up turbo-search hooks (mode: $HOOK_MODE)...${NC}"
+echo ""
 
 # Ensure .claude directory exists
 mkdir -p "$CLAUDE_DIR"
@@ -39,12 +61,20 @@ if [ ! -f "$SETTINGS_FILE" ]; then
   echo "{}" > "$SETTINGS_FILE"
 fi
 
-# Determine the hook script path (try plugin location first, then dev location)
+# Determine the hook script path
+if [ "$HOOK_MODE" = "rag" ]; then
+  HOOK_NAME="rag-context-hook.sh"
+  HOOK_DESC="RAG context injection (injects content snippets)"
+else
+  HOOK_NAME="pre-prompt-search.sh"
+  HOOK_DESC="Simple file suggestion (suggests relevant paths)"
+fi
+
 HOOK_SCRIPT=""
 for path in \
-  "$HOME/.claude/plugins/"*"/claude-turbo-search/hooks/pre-prompt-search.sh" \
-  "$HOME/claude-turbo-search/hooks/pre-prompt-search.sh" \
-  "$PLUGIN_DIR/hooks/pre-prompt-search.sh"; do
+  "$HOME/.claude/plugins/"*"/claude-turbo-search/hooks/$HOOK_NAME" \
+  "$HOME/claude-turbo-search/hooks/$HOOK_NAME" \
+  "$PLUGIN_DIR/hooks/$HOOK_NAME"; do
   if [ -f "$path" ]; then
     HOOK_SCRIPT="$path"
     break
@@ -52,17 +82,21 @@ for path in \
 done
 
 if [ -z "$HOOK_SCRIPT" ]; then
-  echo -e "${RED}Error: Could not find pre-prompt-search.sh hook script${NC}"
+  echo -e "${RED}Error: Could not find $HOOK_NAME hook script${NC}"
   exit 1
 fi
 
-echo "Using hook script: $HOOK_SCRIPT"
+echo "Hook type: $HOOK_DESC"
+echo "Hook script: $HOOK_SCRIPT"
+echo ""
 
-# Check if hooks are already configured
-EXISTING_HOOK=$(jq -r '.hooks[]? | select(.command | contains("pre-prompt-search")) | .command' "$SETTINGS_FILE" 2>/dev/null)
+# Check if any turbo-search hooks are already configured
+EXISTING_HOOK=$(jq -r '.hooks[]? | select(.command | (contains("pre-prompt-search") or contains("rag-context-hook"))) | .command' "$SETTINGS_FILE" 2>/dev/null | head -1)
 if [ -n "$EXISTING_HOOK" ]; then
-  echo -e "${YELLOW}Warning: Hook already configured${NC}"
+  echo -e "${YELLOW}Warning: Existing turbo-search hook found${NC}"
   echo "  Current: $EXISTING_HOOK"
+  echo "  Will be replaced with: $HOOK_SCRIPT"
+  echo ""
 
   # Backup settings
   mkdir -p "$BACKUP_DIR"
@@ -71,15 +105,17 @@ if [ -n "$EXISTING_HOOK" ]; then
   echo -e "${GREEN}✓${NC} Backed up settings to $BACKUP_SETTINGS"
 fi
 
-# Add the hook to settings.json
-# Hook runs on UserPromptSubmit event and injects context
+# Remove existing turbo-search hooks and add the new one
 UPDATED=$(jq --arg hook "$HOOK_SCRIPT" '
+  # Initialize hooks array if it does not exist
   .hooks = (.hooks // []) |
-  .hooks = [.hooks[] | select(.command | contains("pre-prompt-search") | not)] |
+  # Remove existing turbo-search hooks
+  .hooks = [.hooks[] | select(.command | (contains("pre-prompt-search") or contains("rag-context-hook")) | not)] |
+  # Add the new hook
   .hooks += [{
     "event": "UserPromptSubmit",
     "command": $hook,
-    "timeout": 5000
+    "timeout": 10000
   }]
 ' "$SETTINGS_FILE")
 
@@ -87,8 +123,35 @@ echo "$UPDATED" > "$SETTINGS_FILE"
 
 echo -e "${GREEN}✓${NC} Hook configured in $SETTINGS_FILE"
 echo ""
-echo "The hook will automatically search QMD before each prompt and"
-echo "inject relevant file suggestions to help save tokens."
+
+if [ "$HOOK_MODE" = "rag" ]; then
+  echo -e "${BLUE}RAG Mode Enabled${NC}"
+  echo ""
+  echo "How it works:"
+  echo "  1. When you submit a prompt, the hook extracts key terms"
+  echo "  2. It searches QMD for relevant content"
+  echo "  3. Actual content snippets are injected into the context"
+  echo "  4. Claude can answer using this context without reading files"
+  echo ""
+  echo "Token usage: ~500-2000 tokens per prompt for context"
+  echo "Token savings: Often 80%+ by avoiding file reads"
+else
+  echo -e "${BLUE}Simple Mode Enabled${NC}"
+  echo ""
+  echo "How it works:"
+  echo "  1. When you submit a prompt, the hook extracts key terms"
+  echo "  2. It searches QMD for relevant files"
+  echo "  3. File path suggestions are shown to Claude"
+  echo "  4. Claude can choose to read the suggested files"
+  echo ""
+  echo "Token usage: ~50-100 tokens per prompt"
+  echo "Token savings: Varies based on Claude's choices"
+fi
+
 echo ""
-echo "To remove the hook, run: $0 --remove"
-echo "Restart Claude Code to apply changes."
+echo "To switch modes:"
+echo "  Simple: $0"
+echo "  RAG:    $0 --rag"
+echo "  Remove: $0 --remove"
+echo ""
+echo -e "${YELLOW}Restart Claude Code to apply changes.${NC}"

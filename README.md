@@ -109,13 +109,34 @@ qmd get "path/to/file.md"
 Enable automatic context injection that searches QMD before each prompt:
 
 ```bash
+# Simple mode - suggests relevant file paths (lightweight)
 ~/claude-turbo-search/scripts/setup-hooks.sh
+
+# RAG mode - injects actual content snippets (recommended)
+~/claude-turbo-search/scripts/setup-hooks.sh --rag
+
+# Remove hooks
+~/claude-turbo-search/scripts/setup-hooks.sh --remove
 ```
 
-This will automatically suggest relevant files based on your prompts. To remove:
+#### Hook Modes Comparison
 
-```bash
-~/claude-turbo-search/scripts/setup-hooks.sh --remove
+| Mode | Token Cost | How It Works |
+|------|------------|--------------|
+| Simple | ~50-100/prompt | Suggests file paths, Claude decides what to read |
+| RAG | ~500-2000/prompt | Injects content snippets, Claude often needs no file reads |
+
+**RAG mode** is recommended for large codebases - the upfront token cost is offset by avoiding file reads.
+
+#### How RAG Mode Works
+
+```
+1. You submit: "How does authentication work?"
+2. Hook extracts: "authentication work"
+3. QMD searches indexed docs
+4. Hook injects relevant snippets into context
+5. Claude answers using injected context
+6. No file reads needed = massive token savings
 ```
 
 ## Dependencies
