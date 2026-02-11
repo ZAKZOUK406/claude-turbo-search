@@ -31,6 +31,18 @@ Review what was accomplished in this conversation:
 - What key decisions were made?
 - Were there any important patterns or learnings?
 
+### 2.5. Compression Guidelines
+
+When writing summaries, facts, or knowledge entries, follow these rules to maximize information density:
+
+- **Resolve pronouns to concrete entities**: Write "JWT middleware validates tokens" not "it validates them"
+- **Use absolute file paths**: Write "src/auth/middleware.ts" not "this file" or "the auth file"
+- **Write dense, self-contained summaries**: Each memory entry should be understandable without the original conversation context
+- **Avoid filler phrases**: Do not use "I think", "basically", "sort of", "actually" — state facts directly
+- **Use ISO dates**: Write "2026-02-11" not "today" or "yesterday" — temporal references decay quickly
+
+The system automatically compresses text at write time (normalizing dates, stripping filler), but writing clean summaries upfront produces better results.
+
 ### 3. Generate Summary
 
 Create a concise summary (2-3 sentences) that captures:

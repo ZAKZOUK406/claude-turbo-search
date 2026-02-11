@@ -102,6 +102,9 @@ case "${1:-}" in
         # Initialize database
         "$MEMORY_SCRIPT" init
 
+        # Initialize metadata schema
+        "$MEMORY_SCRIPT" init-metadata
+
         # Add to .gitignore if not already there
         GITIGNORE="$REPO_ROOT/.gitignore"
         if [ -f "$GITIGNORE" ]; then

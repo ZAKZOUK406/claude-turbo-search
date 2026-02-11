@@ -36,10 +36,79 @@ SCHEMA_FILE="$SCRIPT_DIR/schema.sql"
 VECTOR_SCHEMA_FILE="$SCRIPT_DIR/schema-vector.sql"
 EMBEDDINGS_SCRIPT="$SCRIPT_DIR/embeddings.sh"
 VECTOR_EXT=""  # Path to sqlite-vector extension, set by init-vector
+METADATA_SCHEMA_FILE="$SCRIPT_DIR/schema-metadata.sql"
 
 # Ensure memory directory exists
 ensure_dir() {
     mkdir -p "$MEMORY_DIR"
+}
+
+# Compress memory text: normalize temporal refs, strip filler, collapse whitespace
+compress_memory() {
+    local text="$1"
+    [ -z "$text" ] && return
+
+    # Compute dates (macOS/Linux compatible)
+    local today yesterday
+    today=$(date +%Y-%m-%d)
+    if date --version >/dev/null 2>&1; then
+        yesterday=$(date -d "yesterday" +%Y-%m-%d)
+    else
+        yesterday=$(date -v-1d +%Y-%m-%d)
+    fi
+
+    # All compression via single awk pass: temporal normalization + filler stripping
+    text=$(echo "$text" | awk -v today="$today" -v yesterday="$yesterday" '{
+        n = split($0, words, " ")
+        result = ""
+        skip_next = 0
+        for (i = 1; i <= n; i++) {
+            if (skip_next) { skip_next = 0; continue }
+            w = words[i]
+            lw = tolower(w)
+
+            # Temporal normalization
+            if (lw == "today" || lw == "today," || lw == "today.") {
+                suffix = substr(lw, 6)
+                w = today suffix
+            } else if (lw == "yesterday" || lw == "yesterday," || lw == "yesterday.") {
+                suffix = substr(lw, 10)
+                w = yesterday suffix
+            }
+
+            # Two-word filler detection
+            if (i < n) {
+                pair = lw " " tolower(words[i+1])
+                if (pair == "i think" || pair == "i believe" || pair == "sort of" || pair == "kind of" || pair == "pretty much" || pair == "you know") {
+                    skip_next = 1
+                    continue
+                }
+            }
+
+            # Single-word filler removal
+            if (lw == "basically" || lw == "actually" || lw == "just" || lw == "really" || lw == "very") {
+                continue
+            }
+
+            result = (result == "") ? w : result " " w
+        }
+        print result
+    }')
+
+    # Collapse multiple spaces/newlines into single space
+    text=$(echo "$text" | tr '\n' ' ' | sed -E 's/[[:space:]]+/ /g' | sed 's/^ *//;s/ *$//')
+
+    # Deduplicate identical sentences
+    text=$(echo "$text" | awk -F'[.!?]' '{
+        for(i=1; i<=NF; i++) {
+            gsub(/^[[:space:]]+|[[:space:]]+$/, "", $i)
+            if ($i != "" && !seen[$i]++) {
+                printf "%s. ", $i
+            }
+        }
+    }' | sed 's/\. $//')
+
+    echo "$text"
 }
 
 # Initialize database with schema
@@ -50,6 +119,263 @@ cmd_init() {
         echo "Memory database initialized at $DB_FILE"
     else
         echo "Memory database already exists at $DB_FILE"
+    fi
+}
+
+# Initialize metadata schema (entity index + relations)
+cmd_init_metadata() {
+    ensure_dir
+    [ ! -f "$DB_FILE" ] && cmd_init
+
+    if [ -f "$METADATA_SCHEMA_FILE" ]; then
+        sqlite3 "$DB_FILE" < "$METADATA_SCHEMA_FILE"
+    else
+        # Inline fallback if schema file is missing
+        sqlite3 "$DB_FILE" <<'EOF'
+CREATE TABLE IF NOT EXISTS entity_metadata (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    entity TEXT NOT NULL,
+    entity_type TEXT NOT NULL,
+    source_type TEXT NOT NULL,
+    source_id INTEGER NOT NULL,
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    UNIQUE(entity, entity_type, source_type, source_id)
+);
+CREATE TABLE IF NOT EXISTS entry_relations (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    from_type TEXT NOT NULL,
+    from_id INTEGER NOT NULL,
+    to_type TEXT NOT NULL,
+    to_id INTEGER NOT NULL,
+    relation TEXT NOT NULL DEFAULT 'related_to',
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    UNIQUE(from_type, from_id, to_type, to_id, relation)
+);
+CREATE INDEX IF NOT EXISTS idx_entity_name ON entity_metadata(entity);
+CREATE INDEX IF NOT EXISTS idx_entity_type ON entity_metadata(entity_type);
+CREATE INDEX IF NOT EXISTS idx_entity_source ON entity_metadata(source_type, source_id);
+CREATE INDEX IF NOT EXISTS idx_relation_from ON entry_relations(from_type, from_id);
+CREATE INDEX IF NOT EXISTS idx_relation_to ON entry_relations(to_type, to_id);
+EOF
+    fi
+    echo "Metadata schema initialized."
+}
+
+# Extract entities from text and files_touched, insert into entity_metadata
+extract_entities() {
+    local source_type="$1"
+    local source_id="$2"
+    local text="$3"
+    local files_json="$4"
+
+    # Ensure metadata tables exist
+    local has_meta
+    has_meta=$(sqlite3 "$DB_FILE" "SELECT COUNT(*) FROM sqlite_master WHERE name = 'entity_metadata';" 2>/dev/null || echo "0")
+    [ "$has_meta" -eq 0 ] && return
+
+    local sql=""
+
+    # Parse files_touched JSON array → file entities
+    if [ -n "$files_json" ] && [ "$files_json" != "[]" ]; then
+        local files_list
+        files_list=$(echo "$files_json" | tr -d '[]"' | tr ',' '\n' | sed 's/^[[:space:]]*//;s/[[:space:]]*$//')
+        while IFS= read -r file; do
+            [ -z "$file" ] && continue
+            local escaped_file
+            escaped_file=$(echo "$file" | sed "s/'/''/g")
+            sql+="INSERT OR IGNORE INTO entity_metadata (entity, entity_type, source_type, source_id) VALUES ('$escaped_file', 'file', '$source_type', $source_id);"
+        done <<< "$files_list"
+    fi
+
+    # Regex extract file-like paths from text (e.g., src/foo/bar.ts)
+    local text_files
+    text_files=$(echo "$text" | grep -oE '[a-zA-Z0-9_./-]+\.[a-zA-Z]{1,6}' | grep '/' | sort -u)
+    while IFS= read -r file; do
+        [ -z "$file" ] && continue
+        local escaped_file
+        escaped_file=$(echo "$file" | sed "s/'/''/g")
+        sql+="INSERT OR IGNORE INTO entity_metadata (entity, entity_type, source_type, source_id) VALUES ('$escaped_file', 'file', '$source_type', $source_id);"
+    done <<< "$text_files"
+
+    # Extract PascalCase names → concept entities
+    local concepts
+    concepts=$(echo "$text" | grep -oE '\b[A-Z][a-z]+([A-Z][a-z]+)+\b' | sort -u)
+    while IFS= read -r concept; do
+        [ -z "$concept" ] && continue
+        local escaped_concept
+        escaped_concept=$(echo "$concept" | sed "s/'/''/g")
+        sql+="INSERT OR IGNORE INTO entity_metadata (entity, entity_type, source_type, source_id) VALUES ('$escaped_concept', 'concept', '$source_type', $source_id);"
+    done <<< "$concepts"
+
+    # Extract dash-separated lowercase names → package entities (e.g., express-session)
+    local packages
+    packages=$(echo "$text" | grep -oE '\b[a-z][a-z0-9]+-[a-z][a-z0-9-]+\b' | sort -u)
+    while IFS= read -r pkg; do
+        [ -z "$pkg" ] && continue
+        local escaped_pkg
+        escaped_pkg=$(echo "$pkg" | sed "s/'/''/g")
+        sql+="INSERT OR IGNORE INTO entity_metadata (entity, entity_type, source_type, source_id) VALUES ('$escaped_pkg', 'package', '$source_type', $source_id);"
+    done <<< "$packages"
+
+    # Execute all inserts
+    if [ -n "$sql" ]; then
+        sqlite3 "$DB_FILE" "$sql" 2>/dev/null || true
+    fi
+}
+
+# Search by entity with optional type filter
+cmd_entity_search() {
+    local query="$1"
+    local entity_type="${2:-}"
+
+    if [ ! -f "$DB_FILE" ]; then
+        echo "No memory database found."
+        exit 1
+    fi
+
+    local has_meta
+    has_meta=$(sqlite3 "$DB_FILE" "SELECT COUNT(*) FROM sqlite_master WHERE name = 'entity_metadata';" 2>/dev/null || echo "0")
+    if [ "$has_meta" -eq 0 ]; then
+        echo "Metadata not initialized. Run 'memory-db.sh init-metadata' first."
+        return
+    fi
+
+    local type_filter=""
+    if [ -n "$entity_type" ]; then
+        type_filter="AND em.entity_type = '$(echo "$entity_type" | sed "s/'/''/g")'"
+    fi
+
+    sqlite3 "$DB_FILE" <<EOF
+SELECT em.entity, em.entity_type, em.source_type, em.source_id,
+    CASE em.source_type
+        WHEN 'session' THEN (SELECT summary FROM sessions WHERE id = em.source_id)
+        WHEN 'knowledge' THEN (SELECT area || ': ' || summary FROM knowledge WHERE id = em.source_id)
+        WHEN 'fact' THEN (SELECT fact FROM facts WHERE id = em.source_id)
+    END as context
+FROM entity_metadata em
+WHERE em.entity LIKE '%$(echo "$query" | sed "s/'/''/g")%'
+$type_filter
+ORDER BY em.created_at DESC
+LIMIT 10;
+EOF
+}
+
+# Consolidate overlapping/duplicate memory entries
+cmd_consolidate() {
+    if [ ! -f "$DB_FILE" ]; then
+        echo "No memory database found."
+        exit 1
+    fi
+
+    local merged=0 removed=0
+
+    # --- Session consolidation: merge sessions with >50% topic overlap ---
+    local session_ids
+    session_ids=$(sqlite3 "$DB_FILE" "SELECT id FROM sessions ORDER BY created_at DESC;")
+
+    local ids_array=()
+    while IFS= read -r id; do
+        [ -n "$id" ] && ids_array+=("$id")
+    done <<< "$session_ids"
+
+    local to_delete=()
+    for ((i=0; i<${#ids_array[@]}; i++)); do
+        local id_a="${ids_array[$i]}"
+        # Skip if already marked for deletion
+        [[ " ${to_delete[*]} " == *" $id_a "* ]] && continue
+
+        local topics_a
+        topics_a=$(sqlite3 "$DB_FILE" "SELECT topics FROM sessions WHERE id=$id_a;" | tr ',' '\n' | sed 's/^[[:space:]]*//;s/[[:space:]]*$//' | sort)
+        local count_a
+        count_a=$(echo "$topics_a" | grep -c . || echo "0")
+        [ "$count_a" -eq 0 ] && continue
+
+        for ((j=i+1; j<${#ids_array[@]}; j++)); do
+            local id_b="${ids_array[$j]}"
+            [[ " ${to_delete[*]} " == *" $id_b "* ]] && continue
+
+            local topics_b
+            topics_b=$(sqlite3 "$DB_FILE" "SELECT topics FROM sessions WHERE id=$id_b;" | tr ',' '\n' | sed 's/^[[:space:]]*//;s/[[:space:]]*$//' | sort)
+            local count_b
+            count_b=$(echo "$topics_b" | grep -c . || echo "0")
+            [ "$count_b" -eq 0 ] && continue
+
+            # Count overlapping topics
+            local overlap
+            overlap=$(comm -12 <(echo "$topics_a") <(echo "$topics_b") | grep -c . || echo "0")
+            local min_count=$(( count_a < count_b ? count_a : count_b ))
+
+            # If >50% overlap, merge into the newer one (id_a) and delete older (id_b)
+            if [ "$min_count" -gt 0 ] && [ $((overlap * 100 / min_count)) -gt 50 ]; then
+                local summary_a summary_b
+                summary_a=$(sqlite3 "$DB_FILE" "SELECT summary FROM sessions WHERE id=$id_a;")
+                summary_b=$(sqlite3 "$DB_FILE" "SELECT summary FROM sessions WHERE id=$id_b;")
+
+                local merged_summary
+                merged_summary=$(compress_memory "$summary_a $summary_b")
+                local escaped_summary
+                escaped_summary=$(echo "$merged_summary" | sed "s/'/''/g")
+
+                sqlite3 "$DB_FILE" "UPDATE sessions SET summary='$escaped_summary' WHERE id=$id_a;"
+                to_delete+=("$id_b")
+                merged=$((merged + 1))
+            fi
+        done
+    done
+
+    # Delete merged sessions
+    for del_id in "${to_delete[@]}"; do
+        sqlite3 "$DB_FILE" "DELETE FROM sessions WHERE id=$del_id;"
+        # Clean up entity metadata
+        sqlite3 "$DB_FILE" "DELETE FROM entity_metadata WHERE source_type='session' AND source_id=$del_id;" 2>/dev/null || true
+        removed=$((removed + 1))
+    done
+
+    # --- Fact consolidation: remove exact duplicates and substring overlaps ---
+    local fact_dupes
+    fact_dupes=$(sqlite3 "$DB_FILE" <<'EOF'
+SELECT f1.id, f2.id FROM facts f1
+JOIN facts f2 ON f1.id < f2.id AND f1.category = f2.category
+WHERE f1.fact = f2.fact OR INSTR(f1.fact, f2.fact) > 0 OR INSTR(f2.fact, f1.fact) > 0;
+EOF
+    )
+
+    local fact_del_ids=()
+    while IFS='|' read -r id1 id2; do
+        [ -z "$id1" ] && continue
+        # Keep the longer/more detailed fact
+        local len1 len2
+        len1=$(sqlite3 "$DB_FILE" "SELECT LENGTH(fact) FROM facts WHERE id=$id1;")
+        len2=$(sqlite3 "$DB_FILE" "SELECT LENGTH(fact) FROM facts WHERE id=$id2;")
+        if [ "$len1" -ge "$len2" ]; then
+            fact_del_ids+=("$id2")
+        else
+            fact_del_ids+=("$id1")
+        fi
+    done <<< "$fact_dupes"
+
+    # Deduplicate the deletion list and delete
+    local unique_del
+    unique_del=$(printf '%s\n' "${fact_del_ids[@]}" | sort -u)
+    while IFS= read -r del_id; do
+        [ -z "$del_id" ] && continue
+        sqlite3 "$DB_FILE" "DELETE FROM facts WHERE id=$del_id;"
+        sqlite3 "$DB_FILE" "DELETE FROM entity_metadata WHERE source_type='fact' AND source_id=$del_id;" 2>/dev/null || true
+        removed=$((removed + 1))
+    done <<< "$unique_del"
+
+    echo "Consolidation complete: $merged merged, $removed removed."
+}
+
+# Lightweight check: run consolidation in background if needed
+maybe_consolidate() {
+    [ ! -f "$DB_FILE" ] && return
+
+    local recent_count
+    recent_count=$(sqlite3 "$DB_FILE" "SELECT COUNT(*) FROM sessions WHERE created_at > datetime('now', '-30 days');" 2>/dev/null || echo "0")
+
+    if [ "$recent_count" -ge 10 ]; then
+        ( cmd_consolidate >/dev/null 2>&1 ) & disown
     fi
 }
 
@@ -77,7 +403,8 @@ EOF
 
 # Add a session summary
 cmd_add_session() {
-    local summary="$1"
+    local summary
+    summary=$(compress_memory "$1")
     local files="$2"
     local tools="$3"
     local topics="$4"
@@ -92,13 +419,23 @@ VALUES ('$(echo "$summary" | sed "s/'/''/g")',
         '$(echo "$tools" | sed "s/'/''/g")',
         '$(echo "$topics" | sed "s/'/''/g")');
 EOF
+
+    # Extract entities from the new session
+    local last_id
+    last_id=$(sqlite3 "$DB_FILE" "SELECT MAX(id) FROM sessions;")
+    extract_entities "session" "$last_id" "$summary" "$files"
+
+    # Check if consolidation is needed
+    maybe_consolidate
+
     echo "Session saved."
 }
 
 # Add or update knowledge about a code area
 cmd_add_knowledge() {
     local area="$1"
-    local summary="$2"
+    local summary
+    summary=$(compress_memory "$2")
     local patterns="$3"
 
     ensure_dir
@@ -114,12 +451,19 @@ ON CONFLICT(area) DO UPDATE SET
     patterns = excluded.patterns,
     updated_at = CURRENT_TIMESTAMP;
 EOF
+
+    # Extract entities from the knowledge entry
+    local last_id
+    last_id=$(sqlite3 "$DB_FILE" "SELECT id FROM knowledge WHERE area = '$(echo "$area" | sed "s/'/''/g")';")
+    extract_entities "knowledge" "$last_id" "$summary" ""
+
     echo "Knowledge saved for: $area"
 }
 
 # Add a fact
 cmd_add_fact() {
-    local fact="$1"
+    local fact
+    fact=$(compress_memory "$1")
     local category="${2:-general}"
 
     ensure_dir
@@ -130,6 +474,12 @@ INSERT INTO facts (fact, category)
 VALUES ('$(echo "$fact" | sed "s/'/''/g")',
         '$(echo "$category" | sed "s/'/''/g")');
 EOF
+
+    # Extract entities from the fact
+    local last_id
+    last_id=$(sqlite3 "$DB_FILE" "SELECT MAX(id) FROM facts;")
+    extract_entities "fact" "$last_id" "$fact" ""
+
     echo "Fact saved."
 }
 
@@ -489,12 +839,22 @@ case "${1:-}" in
     stats)
         cmd_stats
         ;;
+    init-metadata)
+        cmd_init_metadata
+        ;;
+    consolidate)
+        cmd_consolidate
+        ;;
+    entity-search)
+        cmd_entity_search "${2:-}" "${3:-}"
+        ;;
     *)
-        echo "Usage: $0 {init|init-vector|search|vsearch|add-session|add-knowledge|add-fact|recent|context|embed|stats}"
+        echo "Usage: $0 {init|init-vector|init-metadata|search|vsearch|add-session|add-knowledge|add-fact|recent|context|embed|consolidate|entity-search|stats}"
         echo ""
         echo "Commands:"
         echo "  init                    Initialize memory database"
         echo "  init-vector             Enable vector search support"
+        echo "  init-metadata           Initialize entity metadata schema"
         echo "  search <query>          Search memory (FTS keyword search)"
         echo "  vsearch <query>         Semantic vector search"
         echo "  add-session <summary> <files> <tools> <topics>"
@@ -503,6 +863,8 @@ case "${1:-}" in
         echo "  recent [n]              Show n recent sessions"
         echo "  context <query> [limit] Get context for injection"
         echo "  embed                   Process embedding queue"
+        echo "  consolidate             Merge overlapping sessions and deduplicate facts"
+        echo "  entity-search <query> [type]  Search by entity name (type: file|package|concept)"
         echo "  stats                   Show database statistics"
         exit 1
         ;;
